@@ -108,7 +108,7 @@
     - name: Reboot the server if the kernel was updated
       reboot:
       when: yum_result.changed
-      #delegate_to: 172.19.243.35
+      
     - name: wait for connection
       wait_for:
         host: "{{ inventory_hostname }}"
