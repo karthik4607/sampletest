@@ -1,0 +1,154 @@
+---
+- name: Patching of servers
+  hosts: all
+  become: yes
+  gather_facts: yes
+  serial: 10%
+  vars_files:
+    - var.yml
+    
+  
+  tasks:
+    - name: Performing pre-patch check
+      debug:
+         msg: "performing pre-patch on {{ansible_hostname}}"
+
+    - name: check for firewall status
+      script: /root/firewall_check.sh
+      register: fwd
+    - name: check for firewal
+      debug:
+        msg: "{{fwd.stdout}}"
+
+    - name: inform team to stop
+      fail:
+        msg: "firewall is running on {{inventory_hostname}}.please stop"
+      ignore_errors: yes
+    - name: check for running process
+      script: /root/process.sh
+      register: ps
+    - name: check for running
+      debug:
+        msg: "{{ps.stdout}}"
+    - name: Informing App team to stop
+      fail:
+        msg: "Please stop apps running"
+      when: "'process running' in ps.stdout" 
+      ignore_errors: yes
+    - name: checking uptime
+      shell: uptime
+      register: uptime_res
+    - block: 
+        - name: check for diskspace
+          script: /root/disksapce.sh
+          register: ds
+        - name: getting details
+          debug:
+            msg: "{{ds.stdout}}"
+        - name: check if enough diskspace is there or not
+          fail:
+            msg: "diskspace not available"
+          when: "'disk space not available' in ds.stdout"
+      rescue:
+        - name: proceed with patch
+          debug:
+            msg: "ignore diskspace"
+    - name: check kernel version
+      shell: uname -r
+      register: kernel_version
+
+    - name: Sending Email notification to Stakeholders
+      mail:
+        host: "{{ smtp_host }}"
+        port: "{{ smtp_port }}"
+        username: "{{ smtp_user }}"
+        password: "{{ smtp_pass }}"
+        from: "{{ smtp_user}}" 
+        to: "{{ receipient_email }}"
+        subject: Prepatching started on {{ inventory_hostname }}
+        body: |
+          <html>
+            <head>
+               <title>Patching Status</title>
+            </head>
+            <body>
+               <h1>Patching Status</h1>
+               <p>Patching started on {{ inventory_hostname }}</p>
+               <p>Kernel version: {{ kernel_version.stdout }}</p>
+               <p> uptime: {{ uptime_res.stdout }}</p>
+            </body>
+          </html>
+ 
+        subtype: html 
+          
+            
+         
+        secure: starttls
+      delegate_to: localhost
+         
+    - name: fetch kernel
+      debug:
+        msg: " present version is {{kernel_version.stdout}}"
+
+    - name: Get available kernel version from the repository
+      shell: yum list kernel| grep kernel| awk '{print $2}'
+      register: available_kernel
+
+    - name: Show available kernel version
+      debug:
+        msg: "Available kernel version is {{ kernel_version.stdout }}"
+
+    - name: Update kernel if a newer version is available
+      yum:
+        name: '*'
+        state: latest
+      #when: available_kernel.stdout != kernel_version.stdout
+      register: yum_result
+
+    - name: Reboot the server if the kernel was updated
+      reboot:
+      when: yum_result.changed
+      #delegate_to: 172.19.243.35
+    - name: wait for connection
+      wait_for:
+        host: "{{ inventory_hostname }}"
+        port: 22  
+        timeout: 300
+    - name: Checking Server health
+      shell: uptime
+      register: up
+
+    - name: Display
+      debug:
+        msg: uptime of {{inventory_hostname}} is {{up.stdout}} 
+    - name: check open ports
+      shell: netstat -nlup
+      register: open_ports
+      ignore_errors: yes
+    - name: Display open ports
+      debug:
+        msg: "{{ open_ports.stdout }}"
+    - name: Sending Post-Patch notification
+      mail:
+        host: "{{ smtp_host }}"
+        port: "{{ smtp_port }}"
+        username: "{{ smtp_user }}"
+        password: "{{ smtp_pass }}"
+        from: "{{ smtp_user }}"
+        to: "{{ receipient_email }}"
+        subject: PostPatching tasks on {{ inventory_hostname }} completed
+        body: |
+          <html>
+            <h1>Patching Status</h1>
+            <p>patching started on {{inventory_hostname}}</p>
+            <p>kernel version:{{kernel_version.stdout}}</p>
+            <p>uptime: {{ up.stdout }}
+          </html>
+        subtype: html
+        secure: starttls
+      delegate_to: localhost    
+
+
+
+
+
