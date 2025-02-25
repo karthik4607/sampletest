@@ -1,0 +1,53 @@
+---
+- name: getting transaction details
+  hosts: all
+  gather_facts: yes
+  serial: 1
+  tasks:
+    - name: apply patch
+      shell: yum update -y
+      register: yum_result
+    - name: get transaction Id
+      #shell: yum history | awk 'NR==8 {print $1}'
+      shell: |
+        yum history list | grep -E 'Install|Update|Erase' | head -1 | awk '{print $1}'
+       # for id in $(yum history list | grep -E 'Install|Update' | awk '{print $1}'); do
+       #    yum history info $id
+       # done
+      register: transid
+    - name: get transaction details
+      debug:
+        msg: "{{ transid.stdout_lines }}"
+    - name: get package details
+      shell: "yum history info {{ transid.stdout }} | grep -E 'Install | Erase'"
+      register: pkges
+    - name: display packages installed
+      debug:
+        msg: "{{ pkges.stdout_lines }}"
+    - name: Save package details to a file
+      copy:
+        content: |
+          Transaction ID: {{ transid.stdout }}
+          Packages:
+          {{ pkges.stdout_lines | join('\n') }}
+        dest: /tmp/transaction_details.txt
+
+    - name: fetch packages
+      fetch:
+        src: /tmp/transaction_details.txt
+        dest: ./fetch_details/
+        flat: yes
+    - name: Send email with package details
+      mail:
+        host: smtp.gmail.com
+        port: 587
+        username: dcem4607@gmail.com
+        password: rply bfpg cfbl dhsf
+        sender: dcem4607@gmail.com
+        to: dcem4607@gmail.com
+        subject: "YUM Transaction Details"
+        body: "Please find attached the YUM transaction details."
+        attach:
+          - ./fetch_details/transaction_details.txt
+        secure: starttls
+      delegate_to: localhost    
